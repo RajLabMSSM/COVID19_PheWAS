@@ -1,0 +1,51 @@
+---
+title: "COVID19_GWAS"
+author: "Brian M. Schilder"
+date: "Most Recent Update: `r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = T)
+
+library(catalogueR)
+library(dplyr)
+root <- "~/Desktop/COVID19_GWAS"
+```
+
+# Query eQTL Catalogue 
+
+## Import and prepare queries  
+
+```{r} 
+
+DAT <- readxl::read_excel("data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx") %>%
+  dplyr::rename(SNP=`SNP ID`, 
+                CHR=chromosome, 
+                POS=base_pair_location,
+                A1=effect_allele,
+                A2=other_allele,
+                Effect=beta,
+                StdErr=standard_error,
+                P=p_value)
+ 
+
+sumstats_paths <- lapply(1:nrow(DAT), function(i){
+  ROW <- DAT[i,]
+  printer(ROW$SNP) 
+  out <- file.path("data/sumstats",ROW$SNP,paste0(ROW$SNP,".tsv"))
+  dir.create(dirname(out), showWarnings = F, recursive = T)
+  data.table::fwrite(ROW, out, sep="\t")
+  return(out) 
+}) %>% unlist()
+
+
+GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
+                                             genome_build = "hg38",
+                                             force_new_subset = T,
+                                             progress_bar = F,
+                                             nThread = 1)
+ 
+
+```
+

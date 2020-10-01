@@ -1,0 +1,2 @@
+SNP	CHR	POS	variant_id	A1	A2	Effect	StdErr	P	Study	...11	...12	hg18 build coordinates
+rs75413529	18	6742690	chr18:6742690:G:A	A	G	-1.1996	0.2511	1.77e-06	GCST90000256			chr18:6742690-6742690
