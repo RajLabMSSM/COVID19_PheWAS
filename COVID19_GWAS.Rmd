@@ -1,21 +1,43 @@
 ---
 title: "COVID19_GWAS"
-author: "Brian M. Schilder"
+author: 
+    "<h3>Brian M. Schilder, Bioinformatician II<br>
+     Raj Lab<br>
+     Department of Neuroscience<br>
+     Icahn School of Medicine at Mount Sinai<br>
+     NYC, New York<br>"
 date: "Most Recent Update: `r Sys.Date()`"
-output: html_document
+output:
+ html_document:
+    theme: cerulean
+    highlight: zenburn
+    code_folding: show
+    toc: true
+    toc_float: true
+    smooth_scroll: true
+    number_sections: false
+    self_contained: true 
+editor_options: 
+  chunk_output_type: inline
 ---
 
-```{r setup, include=TRUE}
+```{r setup, include=TRUE, message=FALSE}
 knitr::opts_chunk$set(echo = T)
 
 library(catalogueR)
-library(dplyr)
-root <- "~/Desktop/COVID19_GWAS"
+library(dplyr) 
+root <- getwd()
+hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_GWAS"
 ```
 
-# Query eQTL Catalogue 
 
-## Import and prepare queries  
+# Objectives
+
+- Use **catalogueR** to query all 110 datasets in the **eQTL Catalogue** for eQTLs that overlap with COVID-19 GWAS-nominated SNPs.
+- Identify which tissues, cell-types, and genes may be most relevant for genetic COVID-19 susceptibility.
+
+
+# Import and prepare SNPs  
 
 ```{r} 
 
@@ -27,25 +49,100 @@ DAT <- readxl::read_excel("data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combin
                 A2=other_allele,
                 Effect=beta,
                 StdErr=standard_error,
-                P=p_value)
+                P=p_value) %>%
+  dplyr::mutate(Locus=SNP)
  
+createDT(DAT)
+```
 
+Since catalogueR expects a list of files with per-Locus summary stats, we'll just save each SNP as its own "locus" file.
+
+```{r}
 sumstats_paths <- lapply(1:nrow(DAT), function(i){
   ROW <- DAT[i,]
-  printer(ROW$SNP) 
-  out <- file.path("data/sumstats",ROW$SNP,paste0(ROW$SNP,".tsv"))
+  # printer(ROW$SNP) 
+  out <- file.path("data/sumstats",ROW$SNP,paste0(ROW$SNP,"_COVID19.tsv"))
   dir.create(dirname(out), showWarnings = F, recursive = T)
   data.table::fwrite(ROW, out, sep="\t")
   return(out) 
-}) %>% unlist()
+}) %>% unlist() 
+```
 
 
+# Query eQTL Catalogue 
+ 
+## Run on computing cluster
+
+```{r, eval=F} 
 GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
+                                             # qtl_search = "CEDAR.monocyte_CD14",
+                                             
                                              genome_build = "hg38",
                                              force_new_subset = T,
                                              progress_bar = F,
-                                             nThread = 1)
- 
+                                             merge_with_gwas = T,
+                                             split_files = F,
+                                             nThread = 4) 
+```
 
+## Import results
+
+```{r} 
+GWAS.QTL <- data.table::fread(file.path(root,"catalogueR_queries/eQTL_Catalogue.tsv.gz"), nThread = 4)
+```
+
+# Summarise
+
+Annotate tissues using metadata
+
+```{r}
+GWAS.QTL <- eQTL_Catalogue.annotate_tissues(dat = GWAS.QTL)  
+```
+
+Count the number of unique SNPs, eQTL genes, significant eGenes per tissue/cell-type.
+
+**Note**: *eQTL Catalogue* only provides raw p-values, so you'll need to infer your own signficance correction threshold. For simplicity, I use `p < 5e-8` here.
+
+```{r}
+sig_thresh <- 5e-8
+
+counts <- GWAS.QTL %>% 
+  dplyr::group_by(System, Tissue_group, Tissue) %>% 
+  dplyr::summarise(variants=dplyr::n_distinct(SNP),
+                   eVariants=dplyr::n_distinct(SNP[pvalue.QTL<sig_thresh]),
+                   genes=dplyr::n_distinct(gene.QTL),
+                   eGenes=dplyr::n_distinct(gene.QTL[pvalue.QTL<sig_thresh]),
+                   eGenes_names=paste(unique(gene.QTL[pvalue.QTL<sig_thresh]), collapse = ", "),
+                   studies=dplyr::n_distinct(Study),
+                   studies_names=paste(unique(Study), collapse = ", ")) %>%
+  dplyr::arrange(desc(variants),desc(eVariants),
+                 desc(genes), desc(eGenes))
+createDT(counts)
+```
+
+ 
+# Plot 
+
+```{r, fig.height=7} 
+library(ggplot2)
+
+GWAS.QTL$Tissue <- factor(GWAS.QTL$Tissue, levels = unique(counts$Tissue), ordered = T)
+
+gp <- ggplot(data = subset(GWAS.QTL, pvalue.QTL< sig_thresh), 
+       aes(x= gene.QTL, y= Tissue, color=P, size= pvalue.QTL)) +
+  geom_point(alpha=1) + 
+  scale_color_viridis_c(direction = -1) +    
+  facet_grid(facets = System ~.,
+             space = "free_y",
+             scales = "free_y") +
+  guides(size = guide_legend(reverse=T)) +
+  labs(title = "Variant overlap: COVID-19 GWAS vs. eQTL Catalogue",
+       subtitle = paste("QTL p-value <",sig_thresh)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill="grey20"),
+        strip.text = element_text(color="white"))
+print(gp)
+ggsave("plots/COVID19_GWAS.summary.png", gp, dpi=300)
 ```
 

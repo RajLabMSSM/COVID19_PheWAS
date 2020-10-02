@@ -1,0 +1,2 @@
+SNP	CHR	POS	variant_id	A1	A2	Effect	StdErr	P	Study	hg18 build coordinates	Locus
+rs3934992	11	771716	chr11:771716:A:C	A	C	-0.3259	0.0663	8.73e-07	GCST90000256	chr11:771716-771716	rs3934992
