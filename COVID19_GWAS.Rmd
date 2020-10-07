@@ -126,7 +126,7 @@ createDT(counts)
  
 # Plot 
 
-```{r, fig.height=7} 
+```{r, fig.height=7.5, fig.width=9} 
 library(ggplot2)
 
 GWAS.QTL$Tissue <- factor(GWAS.QTL$Tissue, levels = unique(counts$Tissue), ordered = T)
