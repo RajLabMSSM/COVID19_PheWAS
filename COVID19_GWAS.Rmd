@@ -104,15 +104,18 @@ Count the number of unique SNPs, eQTL genes, significant eGenes per tissue/cell-
 **Note**: *eQTL Catalogue* only provides raw p-values, so you'll need to infer your own signficance correction threshold. For simplicity, I use `p < 5e-8` here.
 
 ```{r}
-sig_thresh <- 5e-8
+GWAS.QTL <- dplyr::mutate(GWAS.QTL, FDR.QTL=stats::p.adjust(p = pvalue.QTL, method = "fdr"))
+# p_thresh <- 5e-8
+fdr_thresh <- 0.05
+
 
 counts <- GWAS.QTL %>% 
   dplyr::group_by(System, Tissue_group, Tissue) %>% 
   dplyr::summarise(variants=dplyr::n_distinct(SNP),
-                   eVariants=dplyr::n_distinct(SNP[pvalue.QTL<sig_thresh]),
+                   eVariants=dplyr::n_distinct(SNP[FDR.QTL<fdr_thresh]),
                    genes=dplyr::n_distinct(gene.QTL),
-                   eGenes=dplyr::n_distinct(gene.QTL[pvalue.QTL<sig_thresh]),
-                   eGenes_names=paste(unique(gene.QTL[pvalue.QTL<sig_thresh]), collapse = ", "),
+                   eGenes=dplyr::n_distinct(gene.QTL[FDR.QTL<fdr_thresh]),
+                   eGenes_names=paste(unique(gene.QTL[FDR.QTL<fdr_thresh]), collapse = ", "),
                    studies=dplyr::n_distinct(Study),
                    studies_names=paste(unique(Study), collapse = ", ")) %>%
   dplyr::arrange(desc(variants),desc(eVariants),
@@ -128,8 +131,8 @@ library(ggplot2)
 
 GWAS.QTL$Tissue <- factor(GWAS.QTL$Tissue, levels = unique(counts$Tissue), ordered = T)
 
-gp <- ggplot(data = subset(GWAS.QTL, pvalue.QTL< sig_thresh), 
-       aes(x= gene.QTL, y= Tissue, color=P, size= pvalue.QTL)) +
+gp <- ggplot(data = subset(GWAS.QTL, FDR.QTL< fdr_thresh), 
+       aes(x= gene.QTL, y= Tissue, color=P, size= FDR.QTL)) +
   geom_point(alpha=1) + 
   scale_color_viridis_c(direction = -1) +    
   facet_grid(facets = System ~.,
@@ -137,12 +140,19 @@ gp <- ggplot(data = subset(GWAS.QTL, pvalue.QTL< sig_thresh),
              scales = "free_y") +
   guides(size = guide_legend(reverse=T)) +
   labs(title = "Variant overlap: COVID-19 GWAS vs. eQTL Catalogue",
-       subtitle = paste("QTL p-value <",sig_thresh)) +
+       subtitle = paste("QTL FDR <",fdr_thresh)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         strip.background = element_rect(fill="grey20"),
         strip.text = element_text(color="white"))
 print(gp)
 ggsave("plots/COVID19_GWAS.summary.png", gp, dpi=300)
+```
+
+
+# Save annotated and FDR-corrected results
+
+```{r}
+data.table::fwrite(GWAS.QTL, file.path(root,"catalogueR_queries/eQTL_Catalogue.annotated.tsv.gz"))
 ```
 
