@@ -1,5 +1,5 @@
 ---
-title: "COVID19_GWAS"
+title: "COVID19_PheWAS"
 author: 
     "<h3>Brian M. Schilder, Bioinformatician II<br>
      Raj Lab<br>
@@ -27,7 +27,7 @@ knitr::opts_chunk$set(echo = T)
 library(catalogueR)
 library(dplyr) 
 root <- getwd()
-hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_GWAS"
+hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_PheWAS"
 ```
 
 
@@ -75,10 +75,11 @@ sumstats_paths <- lapply(1:nrow(DAT), function(i){
 
 ```{r, eval=F} 
 GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
+                                             output_dir = "catalogueR_queries",
                                              # qtl_search = "CEDAR.monocyte_CD14",
                                              
                                              genome_build = "hg38",
-                                             force_new_subset = T,
+                                             force_new_subset = F,
                                              progress_bar = F,
                                              merge_with_gwas = T,
                                              split_files = F,
@@ -146,7 +147,8 @@ gp <- ggplot(data = subset(GWAS.QTL, FDR.QTL< fdr_thresh),
         strip.background = element_rect(fill="grey20"),
         strip.text = element_text(color="white"))
 print(gp)
-ggsave("plots/COVID19_GWAS.summary.png", gp, dpi=300)
+
+ggsave("plots/COVID19_PheWAS.summary.png", gp, dpi=300)
 ```
 
 
