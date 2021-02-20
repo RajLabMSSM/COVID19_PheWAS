@@ -1,0 +1,154 @@
+---
+title: "COVID19_PheWAS_coloc"
+author: 
+    "<h3>Brian M. Schilder, Bioinformatician II<br>
+     Raj Lab<br>
+     Department of Neuroscience<br>
+     Icahn School of Medicine at Mount Sinai<br>
+     NYC, New York<br>"
+date: "Most Recent Update: `r Sys.Date()`"
+output:
+ html_document:
+    theme: cerulean
+    highlight: zenburn
+    code_folding: show
+    toc: true
+    toc_float: true
+    smooth_scroll: true
+    number_sections: false
+    self_contained: true 
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=TRUE, message=FALSE}
+knitr::opts_chunk$set(echo = T)
+
+library(catalogueR)
+library(dplyr) 
+root <- getwd()
+hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_PheWAS"
+```
+
+
+# Objectives
+
+- Previously we identified significant eQTL that showed overlap with significant COVID pheWAS hits.  
+- Here, we aim to more robustly test whether the genetic signals underlying these simple overlaps are indeed the same, using a methodology called colocalization. 
+
+- Specifically, we will use `coloc::coloc.abf`, which uses Approximate Bayes Factor to infer the probability that each SNP is causal in a given locus in each of the datasets (eQTL and pheWAS). It then tests the hypothesis that those signals show substantially similar association distributions. 
+## Prepare data  
+
+First, let's import the COVID19 GWAS summary statistic and split them into locus folders
+
+```{r Prepare data}
+proxy_snps <- readxl::read_excel(file.path(root,"data/COVID19_pheWAS/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx")) %>%
+  dplyr::mutate(proxy=gsub(":","-",variant_id)) %>% 
+  data.table::data.table() %>%
+  # Remove chromosome 23 because this is not available in the COVID19 GWAS file
+  subset(chromosome!=23)
+
+DAT <- data.table::fread(file.path(root,"data/COVID19_GWAS/GCST90000256_GRCh38.tsv.gz"),
+                          nThread = 10) %>%
+ dplyr::rename(CHR=chromosome, 
+               POS=base_pair_location,
+               A1=effect_allele,
+               A2=other_allele,
+               Effect=beta,
+               StdErr=standard_error,
+               P=p_value) %>%
+  dplyr::mutate(variant_id=gsub(":","-",variant_id))
+
+createDT(head(DAT))
+```
+ 
+
+## Construct locus files 
+
+- We need to annotate each SNP position by RSIDs so we can merge them with the *eQTL Catalogue* SNPs. This is done using `catalogueR::rsids_from_coords()`.
+
+```{r Construct locus files}
+bp_distance <- 1000000 # 1Mb windows
+
+sumstats_paths <- lapply(1:nrow(proxy_snps), function(i){
+  proxy_dat <- proxy_snps[i,]  
+  loc <- proxy_dat$proxy
+  message(loc)
+  min_POS <- proxy_dat$base_pair_location - bp_distance
+  max_POS <- proxy_dat$base_pair_location + bp_distance
+  dat <- subset(DAT, 
+                CHR==proxy_dat$chromosome & 
+                POS>=min_POS & POS<=max_POS) 
+  dat$Locus <- loc
+  # Get RSIDs
+  dat <- catalogueR::rsids_from_coords(dat, genome_build = "hg38")
+  dat <- dplyr::rename(dat, SNP=RefSNP_id)
+  out <- file.path("data/COVID19_GWAS",loc,paste0(loc,"_COVID19.tsv.gz"))
+  dir.create(dirname(out), showWarnings = F, recursive = T)
+  data.table::fwrite(dat, out, sep="\t")
+  return(out) 
+}) %>% unlist() 
+
+sumstats_paths <- setNames(sumstats_paths, basename(dirname(sumstats_paths)))
+```
+
+## Query eQTL Catalogue 
+ 
+- We will need to rerun our previous `eQTL_Catalogue.query` in the *COVID19_PheWAS* step, as this only queried the lead pheWAS SNPs. For colocalization analyses, we need all the SNPs in each locus.
+
+- Exactly how you define a locus can vary, but here we use the simple approach of pulling all SNP +/- 1Mb from the lead SNP in each locus (2Mb windows). 
+ 
+### Run query on computing cluster
+
+```{r Run on computing cluster, eval=F} 
+GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
+                                             output_dir = "GWAS_queries",
+                                             # qtl_search = "CEDAR.monocyte_CD14",
+                                             
+                                             genome_build = "hg38",
+                                             force_new_subset = T, 
+                                             merge_with_gwas = T,
+                                             split_files = T,
+                                             conda_env = "echoR",
+                                             nThread = 10) 
+```
+
+
+## Read annotated and FDR-corrected results  
+
+```{r Read annotated and FDR-corrected results  }
+GWAS.QTL <- data.table::fread(file.path(root,"catalogueR_queries/eQTL_Catalogue.annotated.tsv.gz"))
+```
+
+
+
+# Colocalization
+
+- Perform more robust colocalization analyses between COVID19 GWAS and eQTLs to identify shared genetic signals. 
+
+- To reduce the number of tests, we only run colocalization on loci which the lead SNPs from both the pheWAS and eQTL were genome-wide significant. 
+
+## Run coloc  
+
+```{r Run coloc  }
+coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = GWAS.QTL)
+
+```
+
+
+## Plot coloc results 
+
+```{r Plot coloc results }
+coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = )
+
+```
+
+# Session info  
+
+<details>
+
+```{r  Session info}
+utils::sessionInfo()
+```
+
+</details> 

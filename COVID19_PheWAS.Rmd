@@ -41,7 +41,7 @@ hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_PheWAS"
 
 ```{r} 
 
-DAT <- readxl::read_excel("data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx") %>%
+DAT <- readxl::read_excel("data/COVID19_pheWAS/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx") %>%
   dplyr::rename(SNP=`SNP ID`, 
                 CHR=chromosome, 
                 POS=base_pair_location,
@@ -61,7 +61,7 @@ Since catalogueR expects a list of files with per-Locus summary stats, we'll jus
 sumstats_paths <- lapply(1:nrow(DAT), function(i){
   ROW <- DAT[i,]
   # printer(ROW$SNP) 
-  out <- file.path("data/sumstats",ROW$SNP,paste0(ROW$SNP,"_COVID19.tsv"))
+  out <- file.path("data/COVID19_pheWAS",ROW$SNP,paste0(ROW$SNP,"_COVID19.tsv"))
   dir.create(dirname(out), showWarnings = F, recursive = T)
   data.table::fwrite(ROW, out, sep="\t")
   return(out) 
@@ -69,13 +69,17 @@ sumstats_paths <- lapply(1:nrow(DAT), function(i){
 ```
 
 
-# Query eQTL Catalogue 
+# Overlap
+
+Simply identify SNPs that overlap between COVID19 GWAS and eQTLs.
+
+## Query eQTL Catalogue 
  
-## Run on computing cluster
+### Run on computing cluster
 
 ```{r, eval=F} 
 GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
-                                             output_dir = "catalogueR_queries",
+                                             output_dir = "pheWAS_queries",
                                              # qtl_search = "CEDAR.monocyte_CD14",
                                              
                                              genome_build = "hg38",
@@ -86,13 +90,13 @@ GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
                                              nThread = 4) 
 ```
 
-## Import results
+### Import results
 
 ```{r} 
-GWAS.QTL <- data.table::fread(file.path(root,"catalogueR_queries/eQTL_Catalogue.tsv.gz"), nThread = 4)
+GWAS.QTL <- data.table::fread(file.path(root,"pheWAS_queries/eQTL_Catalogue.tsv.gz"), nThread = 4)
 ```
 
-# Summarise
+## Summarise
 
 Annotate tissues using metadata
 
@@ -125,7 +129,7 @@ createDT(counts)
 ```
 
  
-# Plot 
+## Plot 
 
 ```{r, fig.height=7.5, fig.width=9} 
 library(ggplot2)
@@ -152,9 +156,19 @@ ggsave("plots/COVID19_PheWAS.summary.png", gp, dpi=300)
 ```
 
 
-# Save annotated and FDR-corrected results
+## Save annotated and FDR-corrected results
 
 ```{r}
-data.table::fwrite(GWAS.QTL, file.path(root,"catalogueR_queries/eQTL_Catalogue.annotated.tsv.gz"))
+data.table::fwrite(GWAS.QTL, file.path(root,"pheWAS_queries/eQTL_Catalogue.annotated.tsv.gz"))
 ```
 
+
+# Session info  
+
+<details>
+
+```{r  Session info}
+utils::sessionInfo()
+```
+
+</details> 
