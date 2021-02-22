@@ -42,14 +42,49 @@ hpc_root <- "/sc/arion/projects/pd-omics/brian/COVID19_PheWAS"
 First, let's import the COVID19 GWAS summary statistic and split them into locus folders
 
 ```{r Prepare data}
-proxy_snps <- readxl::read_excel(file.path(root,"data/COVID19_pheWAS/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx")) %>%
+proxy_snps <- readxl::read_excel(file.path(root,"data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx")) %>%
   dplyr::mutate(proxy=gsub(":","-",variant_id)) %>% 
-  data.table::data.table() %>%
-  # Remove chromosome 23 because this is not available in the COVID19 GWAS file
+  data.table::data.table()%>%
+  # eQTL Catalogue does not have data on chr23 (X)
   subset(chromosome!=23)
+```
 
-DAT <- data.table::fread(file.path(root,"data/COVID19_GWAS/GCST90000256_GRCh38.tsv.gz"),
-                          nThread = 10) %>%
+In particular, we're interested in several loci. 
+Let's prioritize those. 
+
+```{r Prioritize loci}
+## This approach only leaves X-chrom loci, which are not available in eQTL Catalogue. 
+# highlight_snps <-  readxl::read_excel(file.path(root,"data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx"), sheet = 3) %>% 
+#   subset(highlight=="yellow") 
+# proxy_snps <- proxy_snps[proxy_snps$variant_id %in% highlight_snps$variant_id]
+
+GWAS.QTL <- data.table::fread(file.path(root,"pheWAS_queries/eQTL_Catalogue.annotated.tsv.gz"))
+GWAS.QTL <- subset(GWAS.QTL, FDR.QTL<.05)
+
+
+proxy_snps <- subset(proxy_snps, variant_id %in% GWAS.QTL$variant_id)
+
+createDT(proxy_snps)
+```
+
+The original authors of the COVID19 GWAS don't provide the complete [summary statistics](http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90000256/). They are missing:  
+
+- **MAF**: Minor Allele Frequency of each SNP. Nor do they provide the frequency of one of the allele, so that MAF could be inferred. Instead, we must borrow MAF from the *eQTL Catalogue* datasets and assume that they are similar enough to the GWAS (not always a valid assumption but can be used). 
+
+- **N**: Per-SNP sample size. Sample size can vary from across SNPs within a study due to QC steps, so it's best to have per-SNP sample size. Effective sample size takes into account the proportion of cases vs. controls in your sample, and is even better. Here, we have neither and thus are forced to assume that all SNPs have the same effective sample size (based on the total number of participants in the GWAS). 
+>  "835 patients and 1255 control participants from Italy and 775 patients and 950 control participants from Spain were included in the final analysis."
+ 
+```{r}
+N_cases <- 835 + 775
+N_controls <- 1255 + 950
+# N is effective sample size
+N <- round(4.0 / (1.0/N_cases + 1.0/N_controls), digits = 0)
+```
+
+
+```{r}
+DAT <- data.table::fread(file.path(root,"data/GCST90000256_GRCh38.tsv.gz"),
+                          nThread = 10, nrows = 10) %>%
  dplyr::rename(CHR=chromosome, 
                POS=base_pair_location,
                A1=effect_allele,
@@ -57,7 +92,8 @@ DAT <- data.table::fread(file.path(root,"data/COVID19_GWAS/GCST90000256_GRCh38.t
                Effect=beta,
                StdErr=standard_error,
                P=p_value) %>%
-  dplyr::mutate(variant_id=gsub(":","-",variant_id))
+  dplyr::mutate(variant_id=gsub(":","-",variant_id))  
+DAT$N <- N
 
 createDT(head(DAT))
 ```
@@ -69,28 +105,39 @@ createDT(head(DAT))
 
 ```{r Construct locus files}
 bp_distance <- 1000000 # 1Mb windows
+force_new_subset <- F
 
 sumstats_paths <- lapply(1:nrow(proxy_snps), function(i){
   proxy_dat <- proxy_snps[i,]  
   loc <- proxy_dat$proxy
   message(loc)
-  min_POS <- proxy_dat$base_pair_location - bp_distance
-  max_POS <- proxy_dat$base_pair_location + bp_distance
-  dat <- subset(DAT, 
-                CHR==proxy_dat$chromosome & 
-                POS>=min_POS & POS<=max_POS) 
-  dat$Locus <- loc
-  # Get RSIDs
-  dat <- catalogueR::rsids_from_coords(dat, genome_build = "hg38")
-  dat <- dplyr::rename(dat, SNP=RefSNP_id)
   out <- file.path("data/COVID19_GWAS",loc,paste0(loc,"_COVID19.tsv.gz"))
-  dir.create(dirname(out), showWarnings = F, recursive = T)
-  data.table::fwrite(dat, out, sep="\t")
+  if(!file.exists(out) & force_new_subset==F){
+    min_POS <- proxy_dat$base_pair_location - bp_distance
+    max_POS <- proxy_dat$base_pair_location + bp_distance
+    dat <- subset(DAT, 
+                  CHR==proxy_dat$chromosome & 
+                  POS>=min_POS & POS<=max_POS) 
+    dat$Locus <- loc
+    # Get RSIDs
+    dat$CHR <- gsub(23,"X",dat$CHR )
+    dat <- catalogueR::rsids_from_coords(dat, genome_build = "hg38")
+    dat <- dplyr::rename(dat, SNP=RefSNP_id) 
+    dir.create(dirname(out), showWarnings = F, recursive = T)
+    data.table::fwrite(dat, out, sep="\t")
+  } 
   return(out) 
 }) %>% unlist() 
 
-sumstats_paths <- setNames(sumstats_paths, basename(dirname(sumstats_paths)))
+{
+  # sumstats_paths <- list.files(file.path(root,"data/COVID19_GWAS"), 
+  #                            full.names = T, recursive = T)
+  sumstats_paths <- setNames(sumstats_paths, basename(dirname(sumstats_paths)))
+}
 ```
+
+
+
 
 ## Query eQTL Catalogue 
  
@@ -100,27 +147,42 @@ sumstats_paths <- setNames(sumstats_paths, basename(dirname(sumstats_paths)))
  
 ### Run query on computing cluster
 
-```{r Run on computing cluster, eval=F} 
+In particular, we're interested in immune stimulation studies, which we can limit our query to with `qtl_search`.
+
+```{r Run on computing cluster, eval=F}
+n_cores <- parallel::detectCores()
+# data.table::getDTthreads()
+# data.table::setDTthreads(threads = 1)
+# options(url.method = "curl")
+# options(download.file.method="curl")
+
 GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
                                              output_dir = "GWAS_queries",
-                                             # qtl_search = "CEDAR.monocyte_CD14",
+                                             qtl_search = c("Fairfax_2014",
+                                                            "Alasoo_2018",
+                                                            "Nedelec_2016",
+                                                            "Quach_2016"),
                                              
                                              genome_build = "hg38",
                                              force_new_subset = T, 
                                              merge_with_gwas = T,
+                                             # Have to write to files 
+                                             # to use in coloc (currently)
                                              split_files = T,
-                                             conda_env = "echoR",
-                                             nThread = 10) 
+                                             multithread_tabix = F,
+                                             conda_env = NULL,
+                                             progress_bar = F,
+                                             nThread = 1) 
+
+
+gwas.qtl_path <- list.files("GWAS_queries",pattern = ".tsv.gz",
+                            full.names = T, recursive = T)
+# file.remove(gwas.qtl_path[file.size(gwas.qtl_path)<80])
+# startsWith(basename(gwas.qtl_path), paste(highlight_loci, collapse = "|"))
+GWAS.QTL <- catalogueR::gather_files(gwas.qtl_path, nThread = 6)
+
+data.table::fwrite(GWAS.QTL,"GWAS_queries/eQTL_Catalogue.tsv.gz")
 ```
-
-
-## Read annotated and FDR-corrected results  
-
-```{r Read annotated and FDR-corrected results  }
-GWAS.QTL <- data.table::fread(file.path(root,"catalogueR_queries/eQTL_Catalogue.annotated.tsv.gz"))
-```
-
-
 
 # Colocalization
 
@@ -131,7 +193,11 @@ GWAS.QTL <- data.table::fread(file.path(root,"catalogueR_queries/eQTL_Catalogue.
 ## Run coloc  
 
 ```{r Run coloc  }
-coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = GWAS.QTL)
+coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = gwas.qtl_path,
+                                    nThread = 10, 
+                                    top_snp_only = T,
+                                    save_path = "GWAS_queries/COVID19_GWAS.coloc.tsv.gz", 
+                                    gwas_sample_size = N)
 
 ```
 
@@ -139,8 +205,14 @@ coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = GWAS.QTL)
 ## Plot coloc results 
 
 ```{r Plot coloc results }
-coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = )
+coloc_QTLs.grouped <- coloc_QTLs %>% 
+  dplyr::group_by(Locus.GWAS, qtl_id, gene.QTL) %>%
+  dplyr::slice_max(SNP.PP.H4, with_ties = F) %>% 
+  data.table::data.table()
 
+coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = coloc_QTLs.grouped,
+                                             PP_thresh = .8)
+ggplot2::ggsave("plots/coloc.stim_datasets.pdf", dpi = 300)
 ```
 
 # Session info  

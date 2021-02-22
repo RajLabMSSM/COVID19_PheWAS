@@ -4,3 +4,5 @@
 .Ruserdata
 
 /data/**/GCST90000256_GRCh38.tsv.gz
+/GWAS_queries/*
+*.gz.tbi
