@@ -82,7 +82,7 @@ N <- round(4.0 / (1.0/N_cases + 1.0/N_controls), digits = 0)
 ```
 
 
-```{r}
+```{r, eval=F}
 DAT <- data.table::fread(file.path(root,"data/GCST90000256_GRCh38.tsv.gz"),
                           nThread = 10) %>%
  dplyr::rename(CHR=chromosome, 
@@ -103,7 +103,7 @@ createDT(head(DAT))
 
 - We need to annotate each SNP position by RSIDs so we can merge them with the *eQTL Catalogue* SNPs. This is done using `catalogueR::rsids_from_coords()`.
 
-```{r Construct locus files}
+```{r Construct locus files, eval=F}
 bp_distance <- 1000000 # 1Mb windows
 force_new_subset <- F
 
@@ -149,6 +149,8 @@ sumstats_paths <- lapply(1:nrow(proxy_snps), function(i){
 
 In particular, we're interested in immune stimulation studies, which we can limit our query to with `qtl_search`.
 
+* Run on HPC
+
 ```{r Run on computing cluster, eval=F}
 n_cores <- parallel::detectCores()
 # data.table::getDTthreads()
@@ -192,7 +194,9 @@ data.table::fwrite(GWAS.QTL,"GWAS_queries/eQTL_Catalogue.tsv.gz")
 
 ## Run coloc  
 
-```{r Run coloc  }
+* Run on HPC
+
+```{r Run coloc, eval=F}
 # only run coloc on the loci whose proxy GWAS SNps had overlap with eSNPs.
 gwas.qtl_path.sub <- grep(paste(proxy_snps$proxy,collapse="|"),gwas.qtl_path, value = T)
 gwas.qtl_path.sub <- grep(paste(gwas.qtl_path.sub,collapse="|"),gwas.qtl_path.sub, value = T)
@@ -208,15 +212,20 @@ coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = gwas.qtl_path.sub,
 
 ## Plot coloc results 
 
-```{r Plot coloc results }
-coloc_QTLs.grouped <- coloc_QTLs %>% 
-  dplyr::group_by(Locus.GWAS, qtl_id, gene.QTL) %>%
-  dplyr::slice_max(SNP.PP.H4, with_ties = F) %>% 
-  data.table::data.table()
+```{r Plot coloc results, fig.height=10, fig.width=8}
+# coloc_QTLs.grouped <- coloc_QTLs %>% 
+#   dplyr::group_by(Locus.GWAS, qtl_id, gene.QTL) %>%
+#   dplyr::slice_max(SNP.PP.H4, with_ties = F) %>% 
+#   data.table::data.table()
 
-coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = coloc_QTLs.grouped,
+coloc_QTLs <- data.table::fread("data/COVID19_GWAS.coloc.top_snps.tsv.gz")
+# coloc_QTLs <- catalogueR::eQTL_Catalogue.annotate_tissues(coloc_QTLs)
+
+coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = coloc_QTLs,
+                                             show_plot = T,
                                              PP_thresh = .8)
-ggplot2::ggsave("plots/coloc.stim_datasets.pdf", dpi = 300)
+ggplot2::ggsave("plots/coloc.all_datasets.pdf",coloc_plot, 
+                dpi = 300, height = 10, width = 8)
 ```
 
 # Session info  
