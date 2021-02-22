@@ -84,7 +84,7 @@ N <- round(4.0 / (1.0/N_cases + 1.0/N_controls), digits = 0)
 
 ```{r}
 DAT <- data.table::fread(file.path(root,"data/GCST90000256_GRCh38.tsv.gz"),
-                          nThread = 10, nrows = 10) %>%
+                          nThread = 10) %>%
  dplyr::rename(CHR=chromosome, 
                POS=base_pair_location,
                A1=effect_allele,
@@ -93,7 +93,7 @@ DAT <- data.table::fread(file.path(root,"data/GCST90000256_GRCh38.tsv.gz"),
                StdErr=standard_error,
                P=p_value) %>%
   dplyr::mutate(variant_id=gsub(":","-",variant_id))  
-DAT$N <- N
+# DAT$N <- N
 
 createDT(head(DAT))
 ```
@@ -152,19 +152,19 @@ In particular, we're interested in immune stimulation studies, which we can limi
 ```{r Run on computing cluster, eval=F}
 n_cores <- parallel::detectCores()
 # data.table::getDTthreads()
-# data.table::setDTthreads(threads = 1)
+data.table::setDTthreads(threads = 1)
 # options(url.method = "curl")
 # options(download.file.method="curl")
 
 GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
                                              output_dir = "GWAS_queries",
-                                             qtl_search = c("Fairfax_2014",
-                                                            "Alasoo_2018",
-                                                            "Nedelec_2016",
-                                                            "Quach_2016"),
+                                             # qtl_search = c("Fairfax_2014",
+                                             #                "Alasoo_2018",
+                                             #                "Nedelec_2016",
+                                             #                "Quach_2016"),
                                              
                                              genome_build = "hg38",
-                                             force_new_subset = T, 
+                                             force_new_subset = F, 
                                              merge_with_gwas = T,
                                              # Have to write to files 
                                              # to use in coloc (currently)
@@ -172,7 +172,7 @@ GWAS.QTL <- catalogueR::eQTL_Catalogue.query(sumstats_paths = sumstats_paths,
                                              multithread_tabix = F,
                                              conda_env = NULL,
                                              progress_bar = F,
-                                             nThread = 1) 
+                                             nThread = 30) 
 
 
 gwas.qtl_path <- list.files("GWAS_queries",pattern = ".tsv.gz",
@@ -193,8 +193,12 @@ data.table::fwrite(GWAS.QTL,"GWAS_queries/eQTL_Catalogue.tsv.gz")
 ## Run coloc  
 
 ```{r Run coloc  }
-coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = gwas.qtl_path,
-                                    nThread = 10, 
+# only run coloc on the loci whose proxy GWAS SNps had overlap with eSNPs.
+gwas.qtl_path.sub <- grep(paste(proxy_snps$proxy,collapse="|"),gwas.qtl_path, value = T)
+gwas.qtl_path.sub <- grep(paste(gwas.qtl_path.sub,collapse="|"),gwas.qtl_path.sub, value = T)
+
+coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = gwas.qtl_path.sub,
+                                    nThread = 1, 
                                     top_snp_only = T,
                                     save_path = "GWAS_queries/COVID19_GWAS.coloc.tsv.gz", 
                                     gwas_sample_size = N)
