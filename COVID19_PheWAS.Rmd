@@ -1,7 +1,7 @@
 ---
 title: "COVID19_PheWAS"
 author: 
-    "<h3>Brian M. Schilder, Bioinformatician II<br>
+    "<h3>Brian M. Schilder, Bioinformatician II</h3><br>
      Raj Lab<br>
      Department of Neuroscience<br>
      Icahn School of Medicine at Mount Sinai<br>

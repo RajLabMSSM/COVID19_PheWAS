@@ -1,0 +1,206 @@
+---
+title: "COVID19_PheWAS_coloc_plots"
+author: 
+    "<h3>Brian M. Schilder, Bioinformatician II</h3><br>
+     Raj Lab<br>
+     Department of Neuroscience<br>
+     Icahn School of Medicine at Mount Sinai<br>
+     NYC, New York<br>"
+date: "Most Recent Update: `r Sys.Date()`"
+output:
+ html_document:
+    theme: cerulean
+    highlight: zenburn
+    code_folding: show
+    toc: true
+    toc_float: true
+    smooth_scroll: true
+    number_sections: false
+    self_contained: true 
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=TRUE, message=FALSE}
+knitr::opts_chunk$set(echo = T)
+
+library(catalogueR)
+library(dplyr) 
+library(ggplot2)
+root <- getwd() 
+```
+
+
+# Objectives
+
+Visualize colocalization results at summary and locus levels.
+
+# Import data  
+
+## Import proxy SNP info
+
+```{r}
+proxy_snps <- readxl::read_excel(file.path(root,"data/GCST90000255and6_GRCh38_Plessthan1eMinus5_combined_pruned.xlsx")) %>%
+  dplyr::mutate(proxy=gsub(":","-",variant_id)) %>% 
+  data.table::data.table()%>%
+  # eQTL Catalogue does not have data on chr23 (X)
+  subset(chromosome!=23)
+```
+
+## Import coloc results
+
+```{r} 
+# coloc_QTLs <- data.table::fread("data/COVID19_GWAS.coloc.top_snps.tsv.gz")
+coloc_QTLs <- data.table::fread("GWAS_queries/COVID19_GWAS.coloc.tsv.gz",  nThread = 10)
+```
+
+
+## Double check we queried the right loci 
+
+```{r}
+### Which of the eVariant-sig proxy SNPs are in the coloc results?
+proxy_snps$proxy[proxy_snps$proxy  %in% coloc_QTLs$Locus.GWAS]
+
+### Which coloc loci were also in the 9 proxy SNPs?
+unique(coloc_QTLs$Locus.GWAS)[unique(coloc_QTLs$Locus.GWAS) %in% proxy_snps$proxy]
+
+### Which coloc loci were NOT in the 9 proxy SNPs?
+unique(coloc_QTLs$Locus.GWAS)[!unique(coloc_QTLs$Locus.GWAS) %in% proxy_snps$proxy]
+```
+
+
+# Filter results
+
+```{r}
+coloc_QTLs <- subset(coloc_QTLs,
+                     (Locus.GWAS %in% proxy_snps$proxy) & (PP.H4>.8)  
+                     ) %>%
+  ## Same results regardless of whether you use this additional filter
+  subset(((PP.H3+PP.H4)>.8) &  (PP.H4/PP.H3)>=2)  
+
+## Remove pseudogenes 
+coloc_QTLs <- coloc_QTLs[!grepl("AP0066",coloc_QTLs$gene.QTL),]
+## Add unique identifer for each test 
+coloc_QTLs$Locus.qtl_id.gene <- paste(coloc_QTLs$Locus.GWAS,coloc_QTLs$qtl_id,coloc_QTLs$gene.QTL, sep=".")
+
+### Mark lead SNPs as defined by the proxy datatable
+coloc_QTLs$leadSNP <- (coloc_QTLs$CHR %in% proxy_snps$chromosome & 
+                       coloc_QTLs$POS %in% proxy_snps$base_pair_location)
+```
+
+## Save filtered results 
+
+```{r}
+data.table::fwrite(coloc_QTLs,"data/COVID19_GWAS.coloc.top_snps.tsv.gz") 
+```
+
+
+## Summarise results
+
+Count colocalizations per GWAS locus. 
+
+```{r}
+qtl_gene_counts <- coloc_QTLs %>% 
+  dplyr::group_by(Locus.GWAS) %>% 
+  dplyr::summarise(qtl_ids=dplyr::n_distinct(qtl_id),
+                   genes=dplyr::n_distinct(gene.QTL))
+qtl_gene_counts
+```
+
+
+# Plot 
+
+## Heatmap summary 
+
+```{r Plot coloc results, fig.height=10, fig.width=8}
+# coloc_QTLs <- catalogueR::eQTL_Catalogue.annotate_tissues(coloc_QTLs)
+coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = coloc_QTLs,
+                                             show_plot = T,
+                                             PP_thresh = .8, 
+                                             save_dir = F)
+
+ggplot2::ggsave("plots/coloc.all_datasets.pdf",coloc_plot, 
+                dpi = 300, height = 10, width = 8)
+```
+
+
+## Locus zoom plot
+
+### Multi-locus 
+
+Visualize all QTL datasets in all loci at once.
+
+```{r}
+coloc_QTLs$Mb <- coloc_QTLs$POS/1000000
+
+gg_multi <- ggplot(coloc_QTLs, aes(x=Mb, y=-log10(pvalue.QTL), color=SNP.PP.H4)) + 
+  geom_point(alpha=.7) +
+  facet_grid(facets = qtl_id + gene.QTL ~ Locus.GWAS, scales = "free") +
+  theme_bw()
+gg_multi
+```
+
+
+### Locus 1
+
+Let's make some nicer GWAS-eQTL plots colored by LD with the lead GWAS SNP.
+
+```{r}
+gg_merged <- locus_plot(coloc_QTLs = coloc_QTLs, 
+                        locus = unique(coloc_QTLs$Locus.GWAS)[1],
+                        LD_reference = "1KGphase3",
+                        LD_results_dir="data/COVID19_GWAS",
+                        plot_results_dir="plots",
+                        plot_zoom="2x") 
+```
+
+### Locus 2
+
+```{r}
+gg_merged2 <- locus_plot(coloc_QTLs = coloc_QTLs, 
+                        locus = unique(coloc_QTLs$Locus.GWAS)[2],
+                        LD_reference = "1KGphase3",
+                        LD_results_dir="data/COVID19_GWAS",
+                        plot_results_dir="plots", 
+                        plot_zoom = "1x")
+```
+
+
+### echolocatoR method 
+
+```{r, eval=F, collapse=T}
+library(echolocatoR)
+ 
+locus_dat <- subset(coloc_QTLs,  
+                      Locus.GWAS==coloc_QTLs$Locus.GWAS[1] &
+                      gene.QTL==coloc_QTLs$gene.QTL[1]) %>%
+  dplyr::rename(Locus=Locus.GWAS,
+                SNP=snp)
+qtl_cols <- grepl(".QTL",colnames(locus_dat))
+colnames(locus_dat)[qtl_cols] <- paste("qtl",
+                                       gsub(".QTL","",colnames(locus_dat)[qtl_cols]),sep=".")
+locus_lift$.PP <- 1 
+locus_lift$POS <- locus_lift$POS.orig 
+plot.qtl <- PLOT.locus(finemap_dat=locus_lift, 
+                           LD_matrix=LD_matrix,
+                           LD_reference="1KGphase3",
+                           locus_dir=file.path("data/COVID19_GWAS",locus_lift$Locus[1]),
+                           
+                           QTL_prefixes=c("qtl."), 
+                       method_list = NULL,
+                           
+                           save_plot=F,
+                           show_plot=T,
+                           plot.zoom="1x")
+
+```
+
+# Session info  
+
+<details>
+
+```{r  Session info}
+utils::sessionInfo()
+```
+
+</details> 

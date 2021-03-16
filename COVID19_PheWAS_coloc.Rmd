@@ -1,7 +1,7 @@
 ---
 title: "COVID19_PheWAS_coloc"
 author: 
-    "<h3>Brian M. Schilder, Bioinformatician II<br>
+    "<h3>Brian M. Schilder, Bioinformatician II</h3><br>
      Raj Lab<br>
      Department of Neuroscience<br>
      Icahn School of Medicine at Mount Sinai<br>
@@ -207,25 +207,6 @@ coloc_QTLs <- catalogueR::run_coloc(gwas.qtl_paths = gwas.qtl_path.sub,
                                     save_path = "GWAS_queries/COVID19_GWAS.coloc.tsv.gz", 
                                     gwas_sample_size = N)
 
-```
-
-
-## Plot coloc results 
-
-```{r Plot coloc results, fig.height=10, fig.width=8}
-# coloc_QTLs.grouped <- coloc_QTLs %>% 
-#   dplyr::group_by(Locus.GWAS, qtl_id, gene.QTL) %>%
-#   dplyr::slice_max(SNP.PP.H4, with_ties = F) %>% 
-#   data.table::data.table()
-
-coloc_QTLs <- data.table::fread("data/COVID19_GWAS.coloc.top_snps.tsv.gz")
-# coloc_QTLs <- catalogueR::eQTL_Catalogue.annotate_tissues(coloc_QTLs)
-
-coloc_plot <- catalogueR::plot_coloc_summary(coloc_QTLs = coloc_QTLs,
-                                             show_plot = T,
-                                             PP_thresh = .8)
-ggplot2::ggsave("plots/coloc.all_datasets.pdf",coloc_plot, 
-                dpi = 300, height = 10, width = 8)
 ```
 
 # Session info  
